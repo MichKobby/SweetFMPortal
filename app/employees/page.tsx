@@ -118,17 +118,18 @@ export default function EmployeesPage() {
     <MainLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Employee Management</h1>
-            <p className="text-gray-500 mt-1">
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Employee Management</h1>
+            <p className="text-gray-500 mt-1 text-sm md:text-base">
               Manage your team and payroll
             </p>
           </div>
           {canAddEmployee && (
             <Button
               onClick={() => router.push('/employees/new')}
-              className="bg-[#c81f25] hover:bg-[#a01820]"
+              className="bg-[#c81f25] hover:bg-[#a01820] w-full sm:w-auto"
+              size="sm"
             >
               <Plus className="h-4 w-4 mr-2" />
               Add Employee

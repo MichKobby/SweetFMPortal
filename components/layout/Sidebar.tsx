@@ -112,13 +112,20 @@ const navItems: NavItem[] = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { user, sidebarOpen } = useStore();
+  const { user, sidebarOpen, toggleSidebar } = useStore();
 
   if (!user) return null;
 
   const filteredNavItems = navItems.filter((item) =>
     item.roles.includes(user.role)
   );
+
+  // Close sidebar on mobile when clicking a link
+  const handleLinkClick = () => {
+    if (window.innerWidth < 1024) {
+      toggleSidebar();
+    }
+  };
 
   return (
     <aside
@@ -152,6 +159,7 @@ export default function Sidebar() {
                 key={item.name}
                 href={item.href}
                 prefetch={true}
+                onClick={handleLinkClick}
                 className={cn(
                   'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
                   isActive

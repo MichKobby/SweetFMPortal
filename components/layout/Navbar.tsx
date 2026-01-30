@@ -77,21 +77,21 @@ export default function Navbar() {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-gray-200 bg-white px-6">
+    <header className="sticky top-0 z-30 flex h-14 md:h-16 items-center justify-between gap-2 md:gap-4 border-b border-gray-200 bg-white px-3 md:px-6">
       {/* Left Section - Menu Toggle & Search */}
-      <div className="flex items-center gap-4 flex-1">
+      <div className="flex items-center gap-2 md:gap-4 flex-1">
         {/* Menu Toggle */}
         <Button
           variant="ghost"
           size="icon"
           onClick={toggleSidebar}
-          className="text-gray-700"
+          className="text-gray-700 shrink-0"
         >
           <Menu className="h-5 w-5" />
         </Button>
 
-        {/* Search */}
-        <div className="max-w-md flex-1">
+        {/* Search - hidden on very small screens */}
+        <div className="hidden sm:block max-w-md flex-1">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <Input
@@ -134,7 +134,7 @@ export default function Navbar() {
       </div>
 
       {/* Right Section */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 md:gap-4">
         {/* Notifications */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

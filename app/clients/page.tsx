@@ -128,17 +128,18 @@ export default function ClientsPage() {
     <MainLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Client Management</h1>
-            <p className="text-gray-500 mt-1">
-              Manage your clients and their campaigns
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Client Management</h1>
+            <p className="text-gray-500 mt-1 text-sm md:text-base">
+              Manage your clients and campaigns
             </p>
           </div>
           {canAddClient && (
             <Button
               onClick={() => router.push('/clients/new')}
-              className="bg-[#c81f25] hover:bg-[#a01820]"
+              className="bg-[#c81f25] hover:bg-[#a01820] w-full sm:w-auto"
+              size="sm"
             >
               <Plus className="h-4 w-4 mr-2" />
               Add Client
@@ -147,7 +148,7 @@ export default function ClientsPage() {
         </div>
 
         {/* Filters */}
-        <div className="flex gap-4">
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             <Input
@@ -158,7 +159,7 @@ export default function ClientsPage() {
             />
           </div>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-full sm:w-[180px]">
               <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
             <SelectContent>
@@ -172,8 +173,8 @@ export default function ClientsPage() {
 
         {/* Clients Table */}
         <Card>
-          <CardContent className="p-0">
-            <Table>
+          <CardContent className="p-0 overflow-x-auto">
+            <Table className="min-w-[700px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Client Name</TableHead>

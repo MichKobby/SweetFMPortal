@@ -137,27 +137,30 @@ export default function DashboardPage() {
     <MainLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-            <p className="text-gray-500 mt-1">
-              Welcome back, {user.name}! Here's what's happening today.
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Dashboard</h1>
+            <p className="text-gray-500 mt-1 text-sm md:text-base">
+              Welcome back, {user.name}!
             </p>
           </div>
           <div className="flex gap-2">
             <Button
               onClick={() => router.push('/clients/new')}
-              className="bg-[#c81f25] hover:bg-[#a01820]"
+              className="bg-[#c81f25] hover:bg-[#a01820] text-xs md:text-sm"
+              size="sm"
             >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Client
+              <Plus className="h-4 w-4 mr-1 md:mr-2" />
+              <span className="hidden sm:inline">Add</span> Client
             </Button>
             <Button
               onClick={() => router.push('/employees/new')}
               variant="outline"
+              size="sm"
+              className="text-xs md:text-sm"
             >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Employee
+              <Plus className="h-4 w-4 mr-1 md:mr-2" />
+              <span className="hidden sm:inline">Add</span> Employee
             </Button>
           </div>
         </div>
