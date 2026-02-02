@@ -40,16 +40,34 @@ export default function LoginPage() {
 
       if (data.user) {
         // Fetch profile to update store
-        const { data: profile } = await supabase
+        let { data: profile } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', data.user.id)
           .single();
 
+        // If profile doesn't exist, create it from user metadata
         if (!profile) {
-          setError('Profile not found. Please contact administrator.');
-          setIsLoading(false);
-          return;
+          const metadata = data.user.user_metadata;
+          const { data: newProfile, error: createError } = await supabase
+            .from('profiles')
+            .insert({
+              id: data.user.id,
+              email: data.user.email,
+              name: metadata?.name || data.user.email?.split('@')[0] || 'User',
+              role: metadata?.role || 'employee',
+              department: metadata?.department || null,
+            })
+            .select()
+            .single();
+
+          if (createError) {
+            console.error('Profile creation error:', createError);
+            setError('Failed to create profile. Please contact administrator.');
+            setIsLoading(false);
+            return;
+          }
+          profile = newProfile;
         }
 
         // Redirect to dashboard
