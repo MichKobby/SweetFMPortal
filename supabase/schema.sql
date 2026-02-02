@@ -689,13 +689,18 @@ CREATE TRIGGER calculate_employee_net_pay_trigger BEFORE INSERT OR UPDATE ON pub
 CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-    INSERT INTO public.profiles (id, email, name, role)
+    INSERT INTO public.profiles (id, email, name, role, department)
     VALUES (
         NEW.id,
         NEW.email,
         COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
-        COALESCE((NEW.raw_user_meta_data->>'role')::user_role, 'employee')
+        COALESCE((NEW.raw_user_meta_data->>'role')::user_role, 'employee'),
+        NEW.raw_user_meta_data->>'department'
     );
+    RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+    -- Log error but don't fail the user creation
+    RAISE WARNING 'Failed to create profile for user %: %', NEW.id, SQLERRM;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

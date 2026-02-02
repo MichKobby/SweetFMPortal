@@ -115,58 +115,72 @@ export default function AcceptInvitePage() {
     try {
       const supabase = createClient();
 
-      // Create the user account (skip email confirmation since they came from invite)
+      // Create the user account with metadata
+      // The database trigger will automatically create the profile
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: invitation.email,
         password: formData.password,
         options: {
-          emailRedirectTo: undefined, // Skip email confirmation
           data: {
             name: formData.name,
             role: invitation.role,
-            department: invitation.department,
-            email_confirmed: true, // Mark as confirmed since they have valid invite
+            department: invitation.department || null,
           },
         },
       });
 
       if (signUpError) {
+        console.error('Signup error:', signUpError);
         setError(signUpError.message);
         return;
       }
 
-      if (authData.user) {
-        // Create or update the profile with the invitation details
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .upsert({
-            id: authData.user.id,
-            email: invitation.email,
-            name: formData.name,
-            role: invitation.role,
-            department: invitation.department,
-          }, { onConflict: 'id' });
-
-        if (profileError) {
-          console.error('Profile creation error:', profileError);
-        }
-
-        // Mark invitation as accepted
-        await supabase
-          .from('invitations')
-          .update({ accepted_at: new Date().toISOString() })
-          .eq('id', invitation.id);
-
-        // Sign in the user
-        await supabase.auth.signInWithPassword({
-          email: invitation.email,
-          password: formData.password,
-        });
-
-        router.push('/dashboard');
-        router.refresh();
+      if (!authData.user) {
+        setError('Failed to create account. Please try again.');
+        return;
       }
+
+      // Wait a moment for the trigger to create the profile
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Update the profile with department if provided (trigger may not set it)
+      if (invitation.department) {
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ department: invitation.department })
+          .eq('id', authData.user.id);
+        
+        if (updateError) {
+          console.error('Profile update error:', updateError);
+        }
+      }
+
+      // Mark invitation as accepted
+      const { error: inviteError } = await supabase
+        .from('invitations')
+        .update({ accepted_at: new Date().toISOString() })
+        .eq('id', invitation.id);
+
+      if (inviteError) {
+        console.error('Invitation update error:', inviteError);
+      }
+
+      // Sign in the user
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: invitation.email,
+        password: formData.password,
+      });
+
+      if (signInError) {
+        // User was created but sign-in failed - might need email confirmation
+        setError('Account created! Please check your email to confirm, then log in.');
+        return;
+      }
+
+      router.push('/dashboard');
+      router.refresh();
     } catch (err) {
+      console.error('Unexpected error:', err);
       setError('An unexpected error occurred. Please try again.');
     } finally {
       setIsSubmitting(false);
