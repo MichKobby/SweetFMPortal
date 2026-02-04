@@ -1,19 +1,65 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import MainLayout from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useStore } from '@/store/useStore';
+import { createClient } from '@/lib/supabase/client';
 import { Calendar, Clock, Radio, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export default function MySchedulePage() {
-  const { user, shifts, shows } = useStore();
+  const { user } = useStore();
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [shifts, setShifts] = useState<any[]>([]);
+  const [shows, setShows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchSchedule = async () => {
+      if (!user?.email) return;
+      
+      const supabase = createClient();
+      
+      // Find employee by email
+      const { data: employee } = await supabase
+        .from('employees')
+        .select('id')
+        .eq('email', user.email)
+        .single();
+
+      if (employee) {
+        // Fetch shifts for this employee
+        const { data: employeeShifts } = await supabase
+          .from('shifts')
+          .select('*, shows(name)')
+          .eq('employee_id', employee.id);
+
+        if (employeeShifts) setShifts(employeeShifts.map(s => ({
+          ...s,
+          employeeId: s.employee_id,
+          showId: s.show_id,
+          startTime: s.start_time,
+          endTime: s.end_time
+        })));
+      }
+
+      // Fetch all shows
+      const { data: allShows } = await supabase
+        .from('shows')
+        .select('*');
+
+      if (allShows) setShows(allShows);
+
+      setLoading(false);
+    };
+
+    fetchSchedule();
+  }, [user?.email]);
 
   // Get current week dates
   const getWeekDates = (date: Date) => {

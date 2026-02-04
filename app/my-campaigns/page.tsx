@@ -1,19 +1,59 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import MainLayout from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useStore } from '@/store/useStore';
+import { createClient } from '@/lib/supabase/client';
 import { Radio, TrendingUp, Users, Target } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { CampaignAnalytics } from '@/types';
 
 export default function MyCampaignsPage() {
-  const { user, adSlots } = useStore();
-  
-  // Campaign analytics will be fetched from database
+  const { user } = useStore();
+  const [clientAdSlots, setClientAdSlots] = useState<any[]>([]);
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchCampaigns = async () => {
+      if (!user?.email) return;
+      
+      const supabase = createClient();
+      
+      // Find client by email
+      const { data: client } = await supabase
+        .from('clients')
+        .select('id')
+        .eq('email', user.email)
+        .single();
+
+      if (client) {
+        // Fetch ad slots for this client
+        const { data: adSlots } = await supabase
+          .from('ad_slots')
+          .select('*')
+          .eq('client_id', client.id);
+
+        if (adSlots) setClientAdSlots(adSlots);
+
+        // Fetch campaigns
+        const { data: clientCampaigns } = await supabase
+          .from('campaigns')
+          .select('*')
+          .eq('client_id', client.id);
+
+        if (clientCampaigns) setCampaigns(clientCampaigns);
+      }
+
+      setLoading(false);
+    };
+
+    fetchCampaigns();
+  }, [user?.email]);
+
   const clientCampaigns: CampaignAnalytics[] = [];
-  const clientAdSlots = adSlots.filter(ad => ad.clientId === user?.id || ad.clientId === '1');
 
   const activeCampaigns = clientAdSlots.filter(ad => ad.status === 'active').length;
   const totalSpend = clientAdSlots.reduce((sum, ad) => sum + ad.cost, 0);

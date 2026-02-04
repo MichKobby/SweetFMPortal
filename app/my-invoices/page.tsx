@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import MainLayout from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useStore } from '@/store/useStore';
+import { createClient } from '@/lib/supabase/client';
 import { FileText, Download, Eye, DollarSign, Calendar, CreditCard } from 'lucide-react';
 import { Invoice } from '@/types';
 import { formatCurrency } from '@/utils/formatters';
@@ -16,10 +17,47 @@ import { PaymentHistory } from '@/types';
 export default function MyInvoicesPage() {
   const { user } = useStore();
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
-  
-  // Invoices will be fetched from database
-  const clientInvoices: Invoice[] = [];
-  const payments: PaymentHistory[] = [];
+  const [clientInvoices, setClientInvoices] = useState<any[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchInvoices = async () => {
+      if (!user?.email) return;
+      
+      const supabase = createClient();
+      
+      // Find client by email
+      const { data: client } = await supabase
+        .from('clients')
+        .select('id')
+        .eq('email', user.email)
+        .single();
+
+      if (client) {
+        // Fetch invoices for this client
+        const { data: invoices } = await supabase
+          .from('invoices')
+          .select('*')
+          .eq('client_id', client.id)
+          .order('issue_date', { ascending: false });
+
+        if (invoices) setClientInvoices(invoices);
+
+        // Fetch payment history
+        const { data: paymentHistory } = await supabase
+          .from('payment_history')
+          .select('*, invoices(invoice_number)')
+          .in('invoice_id', invoices?.map(i => i.id) || []);
+
+        if (paymentHistory) setPayments(paymentHistory);
+      }
+
+      setLoading(false);
+    };
+
+    fetchInvoices();
+  }, [user?.email]);
 
   const totalBilled = clientInvoices.reduce((sum, inv) => sum + inv.amount, 0);
   const totalPaid = clientInvoices.reduce((sum, inv) => sum + inv.amountPaid, 0);

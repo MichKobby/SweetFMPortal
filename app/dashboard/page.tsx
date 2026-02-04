@@ -414,19 +414,69 @@ export default function DashboardPage() {
 // Employee Dashboard Component
 function EmployeeDashboard({ user }: { user: any }) {
   const router = useRouter();
-  const { shows, shifts, announcements, leaveRequests, timeOff } = useStore();
+  const [shifts, setShifts] = useState<any[]>([]);
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
+  const [timeOffBalance, setTimeOffBalance] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchEmployeeData = async () => {
+      const supabase = createClient();
+      
+      // Find employee by email
+      const { data: employee } = await supabase
+        .from('employees')
+        .select('id')
+        .eq('email', user.email)
+        .single();
+
+      if (employee) {
+        // Fetch shifts
+        const { data: employeeShifts } = await supabase
+          .from('shifts')
+          .select('*')
+          .eq('employee_id', employee.id);
+        if (employeeShifts) setShifts(employeeShifts);
+
+        // Fetch leave requests
+        const { data: leaves } = await supabase
+          .from('leave_requests')
+          .select('*')
+          .eq('employee_id', employee.id);
+        if (leaves) setLeaveRequests(leaves);
+
+        // Fetch time off balance
+        const { data: timeOff } = await supabase
+          .from('time_off_balances')
+          .select('*')
+          .eq('employee_id', employee.id)
+          .eq('year', new Date().getFullYear())
+          .single();
+        if (timeOff) setTimeOffBalance(timeOff);
+      }
+
+      // Fetch announcements
+      const { data: allAnnouncements } = await supabase
+        .from('announcements')
+        .select('*')
+        .order('published_at', { ascending: false });
+      if (allAnnouncements) setAnnouncements(allAnnouncements);
+
+      setLoading(false);
+    };
+
+    fetchEmployeeData();
+  }, [user.email]);
 
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
   
   // Get today's shifts for this employee
-  const todayShifts = shifts.filter(s => 
-    s.employeeId === user.id && s.date === todayStr
-  );
+  const todayShifts = shifts.filter(s => s.date === todayStr);
 
   // Get upcoming shifts (next 7 days)
   const upcomingShifts = shifts.filter(s => {
-    if (s.employeeId !== user.id) return false;
     const shiftDate = new Date(s.date);
     const nextWeek = new Date(today);
     nextWeek.setDate(nextWeek.getDate() + 7);
@@ -434,15 +484,28 @@ function EmployeeDashboard({ user }: { user: any }) {
   }).slice(0, 3);
 
   // Get unread announcements
-  const unreadAnnouncements = announcements.filter(a => !a.read).length;
+  const unreadAnnouncements = announcements.length;
 
   // Get pending leave requests
-  const pendingLeaves = leaveRequests.filter(r => 
-    r.employeeId === user.id && r.status === 'pending'
-  ).length;
+  const pendingLeaves = leaveRequests.filter(r => r.status === 'pending').length;
 
   // Get time off balance
-  const userTimeOff = timeOff.find(t => t.employeeId === user.id);
+  const userTimeOff = timeOffBalance;
+
+  if (loading) {
+    return (
+      <MainLayout>
+        <div className="space-y-6">
+          <div className="h-10 w-48 bg-gray-200 rounded animate-pulse" />
+          <div className="grid gap-4 md:grid-cols-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-24 bg-gray-200 rounded-lg animate-pulse" />
+            ))}
+          </div>
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
