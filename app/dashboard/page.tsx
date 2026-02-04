@@ -595,25 +595,93 @@ function EmployeeDashboard({ user }: { user: any }) {
 // Client Dashboard Component
 function ClientDashboard({ user }: { user: any }) {
   const router = useRouter();
-  const { clients, adSlots } = useStore();
+  const [clientData, setClientData] = useState<any>(null);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [adSlots, setAdSlots] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Find client data (in real app, would match by user ID)
-  const clientData = clients[0]; // Mock: using first client
-  const clientAds = adSlots.filter(ad => ad.clientId === clientData?.id || ad.clientId === '1');
-  const activeAds = clientAds.filter(ad => ad.status === 'active');
-  const scheduledAds = clientAds.filter(ad => ad.status === 'scheduled');
-  const totalSpent = clientAds.reduce((sum, ad) => sum + ad.cost, 0);
+  useEffect(() => {
+    const fetchClientData = async () => {
+      const supabase = createClient();
+      
+      // Find client record by email
+      const { data: client } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('email', user.email)
+        .single();
+
+      if (client) {
+        setClientData(client);
+
+        // Fetch client's invoices
+        const { data: clientInvoices } = await supabase
+          .from('invoices')
+          .select('*')
+          .eq('client_id', client.id);
+        
+        if (clientInvoices) setInvoices(clientInvoices);
+
+        // Fetch client's campaigns
+        const { data: clientCampaigns } = await supabase
+          .from('campaigns')
+          .select('*')
+          .eq('client_id', client.id);
+        
+        if (clientCampaigns) setCampaigns(clientCampaigns);
+
+        // Fetch client's ad slots
+        const { data: clientAds } = await supabase
+          .from('ad_slots')
+          .select('*')
+          .eq('client_id', client.id);
+        
+        if (clientAds) setAdSlots(clientAds);
+      }
+
+      setLoading(false);
+    };
+
+    fetchClientData();
+  }, [user.email]);
+
+  // Calculate real values from fetched data
+  const activeAds = adSlots.filter(ad => ad.status === 'active');
+  const scheduledAds = adSlots.filter(ad => ad.status === 'scheduled');
+  const totalSpent = adSlots.reduce((sum, ad) => sum + (parseFloat(ad.cost) || 0), 0);
   
-  // Mock data for invoices
-  const pendingInvoices = 2;
-  const overdueAmount = 12000;
+  // Calculate from real invoice data
+  const pendingInvoices = invoices.filter(inv => inv.status === 'pending' || inv.status === 'sent').length;
+  const overdueInvoices = invoices.filter(inv => inv.status === 'overdue');
+  const overdueAmount = overdueInvoices.reduce((sum, inv) => sum + (parseFloat(inv.balance) || 0), 0);
+
+  if (loading) {
+    return (
+      <MainLayout>
+        <div className="space-y-6">
+          <div className="h-10 w-48 bg-gray-200 rounded animate-pulse" />
+          <div className="grid gap-4 md:grid-cols-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-24 bg-gray-200 rounded-lg animate-pulse" />
+            ))}
+          </div>
+          <div className="h-32 bg-gray-200 rounded-lg animate-pulse" />
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="h-48 bg-gray-200 rounded-lg animate-pulse" />
+            <div className="h-48 bg-gray-200 rounded-lg animate-pulse" />
+          </div>
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Client Dashboard</h1>
-          <p className="text-gray-500 mt-1">
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Client Dashboard</h1>
+          <p className="text-gray-500 mt-1 text-sm md:text-base">
             Welcome back, {user.name}! Here's your account overview.
           </p>
         </div>
