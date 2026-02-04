@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import MainLayout from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useStore } from '@/store/useStore';
+import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { Plus, MessageSquare, Clock, CheckCircle, AlertCircle } from 'lucide-react';
 import { SupportTicket } from '@/types';
@@ -21,6 +22,8 @@ export default function SupportPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
   const [newMessage, setNewMessage] = useState('');
+  const [clientTickets, setClientTickets] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState({
     subject: '',
     description: '',
@@ -28,8 +31,35 @@ export default function SupportPage() {
     priority: 'medium' as SupportTicket['priority'],
   });
 
-  // Support tickets will be fetched from database
-  const clientTickets: SupportTicket[] = [];
+  useEffect(() => {
+    const fetchTickets = async () => {
+      if (!user?.email) return;
+      
+      const supabase = createClient();
+      
+      // Find client by email
+      const { data: client } = await supabase
+        .from('clients')
+        .select('id')
+        .eq('email', user.email)
+        .single();
+
+      if (client) {
+        // Fetch support tickets for this client
+        const { data: tickets } = await supabase
+          .from('support_tickets')
+          .select('*')
+          .eq('client_id', client.id)
+          .order('created_at', { ascending: false });
+
+        if (tickets) setClientTickets(tickets);
+      }
+
+      setLoading(false);
+    };
+
+    fetchTickets();
+  }, [user?.email]);
 
   const openTickets = clientTickets.filter((t: SupportTicket) => t.status === 'open' || t.status === 'in-progress').length;
   const resolvedTickets = clientTickets.filter((t: SupportTicket) => t.status === 'resolved').length;
