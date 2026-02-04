@@ -343,11 +343,30 @@ export default function SpreadsheetUpload({ onUploadComplete }: SpreadsheetUploa
   };
 
   const downloadTemplate = () => {
-    const worksheet = XLSX.utils.json_to_sheet(config.sampleData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, config.label);
-    XLSX.writeFile(workbook, `${dataType}_template.xlsx`);
-    toast.success('Template downloaded');
+    try {
+      const worksheet = XLSX.utils.json_to_sheet(config.sampleData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, config.label);
+      
+      // Use writeFile with bookType specified for better compatibility
+      const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      
+      // Create download link
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${dataType}_template.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success('Template downloaded');
+    } catch (error) {
+      console.error('Download error:', error);
+      toast.error('Failed to download template');
+    }
   };
 
   const resetUpload = () => {
