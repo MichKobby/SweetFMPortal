@@ -18,7 +18,7 @@ import { Plus, Calendar, CheckCircle, XCircle, Clock, Trash2 } from 'lucide-reac
 import { LeaveRequest } from '@/types';
 
 export default function LeavePage() {
-  const { user } = useStore();
+  const { user, currentOutlet } = useStore();
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
   const [timeOffBalance, setTimeOffBalance] = useState<any>(null);
   const [employees, setEmployees] = useState<any[]>([]);
@@ -59,8 +59,10 @@ export default function LeavePage() {
       })));
     }
 
-    // Fetch employees for linking
-    const { data: employeesData } = await supabase.from('employees').select('id, name');
+    // Fetch employees for linking (scoped to outlet)
+    let empQuery = supabase.from('employees').select('id, name');
+    if (currentOutlet?.id) empQuery = empQuery.eq('outlet_id', currentOutlet.id);
+    const { data: employeesData } = await empQuery;
     if (employeesData) setEmployees(employeesData);
 
     // Fetch time off balance for current user
@@ -86,7 +88,8 @@ export default function LeavePage() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentOutlet?.id]);
 
   // Get user's leave requests
   const userLeaveRequests = user?.role === 'admin' || user?.role === 'manager' 

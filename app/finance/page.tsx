@@ -3,18 +3,33 @@
 import { useState, useEffect } from 'react';
 import MainLayout from '@/components/layout/MainLayout';
 import { createClient } from '@/lib/supabase/client';
+import { useStore } from '@/store/useStore';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { KPICard } from '@/components/ui/kpi-card';
-import { DollarSign, TrendingUp, Wallet, CreditCard, Download, Calendar, Database, Upload, Users, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
+import { DollarSign, TrendingUp, CreditCard, Download, Calendar, Database, Users, ArrowUpRight, ArrowDownRight, Plus, Loader2, Trash2 } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { toast } from 'sonner';
 import SpreadsheetUpload from '@/components/finance/SpreadsheetUpload';
 
+interface LineItem {
+  description: string;
+  quantity: number;
+  unit_price: number;
+}
+
+const EXPENSE_CATEGORIES = ['Utilities', 'Marketing', 'Equipment', 'Software', 'Rent', 'Travel', 'Supplies', 'Other'];
+const PAYMENT_METHODS = ['bank_transfer', 'check', 'cash', 'credit_card', 'other'];
+
 export default function FinancePage() {
+  const { currentOutlet } = useStore();
   const [selectedPeriod] = useState('current-month');
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -29,12 +44,60 @@ export default function FinancePage() {
     clients: [] as any[],
   });
 
+  // --- New Invoice dialog ---
+  const [isInvoiceDialogOpen, setIsInvoiceDialogOpen] = useState(false);
+  const [isCreatingInvoice, setIsCreatingInvoice] = useState(false);
+  const [invoiceForm, setInvoiceForm] = useState({
+    client_id: '',
+    invoice_number: '',
+    issue_date: new Date().toISOString().split('T')[0],
+    due_date: '',
+    payment_terms: 'Net 30',
+    status: 'sent' as 'draft' | 'sent',
+    notes: '',
+  });
+  const [lineItems, setLineItems] = useState<LineItem[]>([
+    { description: '', quantity: 1, unit_price: 0 },
+  ]);
+
+  // --- Record Payment dialog ---
+  const [paymentTarget, setPaymentTarget] = useState<any | null>(null);
+  const [isRecordingPayment, setIsRecordingPayment] = useState(false);
+  const [paymentForm, setPaymentForm] = useState({
+    amount: '',
+    payment_date: new Date().toISOString().split('T')[0],
+    payment_method: 'bank_transfer',
+    reference: '',
+  });
+
+  // --- New Expense dialog ---
+  const [isExpenseDialogOpen, setIsExpenseDialogOpen] = useState(false);
+  const [isCreatingExpense, setIsCreatingExpense] = useState(false);
+  const [expenseForm, setExpenseForm] = useState({
+    date: new Date().toISOString().split('T')[0],
+    category: 'Other',
+    description: '',
+    amount: '',
+    payment_method: 'bank_transfer',
+  });
+
   const fetchFinancialData = async () => {
     const supabase = createClient();
-    
+    const outletId = currentOutlet?.id;
+
+    let invoicesQuery = supabase.from('invoices').select('*, clients(name, company)').order('issue_date', { ascending: false });
+    let expensesQuery = supabase.from('expenses').select('*').order('date', { ascending: false });
+    let payrollQuery = supabase.from('payroll_records').select('*, employees(name)').order('pay_date', { ascending: false });
+
+    if (outletId) {
+      invoicesQuery = invoicesQuery.eq('outlet_id', outletId);
+      expensesQuery = expensesQuery.eq('outlet_id', outletId);
+      payrollQuery = payrollQuery.eq('outlet_id', outletId);
+    }
+
     const [invoicesRes, expensesRes, clientsRes] = await Promise.all([
-      supabase.from('invoices').select('*, clients(name, company)').order('issue_date', { ascending: false }),
-      supabase.from('expenses').select('*').order('date', { ascending: false }),
+      invoicesQuery,
+      expensesQuery,
       supabase.from('clients').select('id, name, company, balance'),
     ]);
 
@@ -46,29 +109,211 @@ export default function FinancePage() {
     const totalExpenses = expenses.reduce((sum: number, exp: any) => sum + (parseFloat(exp.amount) || 0), 0);
     const totalAR = clients.reduce((sum: number, c: any) => sum + (parseFloat(c.balance) || 0), 0);
 
-    // Fetch payroll records
-    const { data: payrollRes } = await supabase.from('payroll_records').select('*, employees(name)').order('pay_date', { ascending: false });
+    const { data: payrollRes } = await payrollQuery;
     const payrollRecords = payrollRes || [];
     const totalPayroll = payrollRecords.reduce((sum: number, p: any) => sum + (parseFloat(p.net_pay) || 0), 0);
 
-    setFinancialData({
-      totalRevenue,
-      totalExpenses,
-      totalAR,
-      totalPayroll,
-      invoices,
-      expenses,
-      payrollRecords,
-      clients,
-    });
+    setFinancialData({ totalRevenue, totalExpenses, totalAR, totalPayroll, invoices, expenses, payrollRecords, clients });
     setLoading(false);
   };
 
   useEffect(() => {
     fetchFinancialData();
-  }, [refreshKey]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey, currentOutlet?.id]);
 
-  const handleUploadComplete = () => {
+  const handleUploadComplete = () => setRefreshKey(prev => prev + 1);
+
+  const openNewInvoiceDialog = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const seq = String(financialData.invoices.length + 1).padStart(3, '0');
+    const dueDate = new Date(now);
+    dueDate.setDate(dueDate.getDate() + 30);
+
+    setInvoiceForm({
+      client_id: '',
+      invoice_number: `INV-${year}${month}-${seq}`,
+      issue_date: now.toISOString().split('T')[0],
+      due_date: dueDate.toISOString().split('T')[0],
+      payment_terms: 'Net 30',
+      status: 'sent',
+      notes: '',
+    });
+    setLineItems([{ description: '', quantity: 1, unit_price: 0 }]);
+    setIsInvoiceDialogOpen(true);
+  };
+
+  const invoiceTotal = lineItems.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
+
+  const handleCreateInvoice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!invoiceForm.client_id) {
+      toast.error('Please select a client');
+      return;
+    }
+    if (lineItems.some(item => !item.description || item.unit_price <= 0)) {
+      toast.error('All line items must have a description and a price greater than 0');
+      return;
+    }
+
+    setIsCreatingInvoice(true);
+    const supabase = createClient();
+
+    const { data: invoice, error } = await supabase
+      .from('invoices')
+      .insert({
+        invoice_number: invoiceForm.invoice_number,
+        client_id: invoiceForm.client_id,
+        amount: invoiceTotal,
+        amount_paid: 0,
+        balance: invoiceTotal,
+        status: invoiceForm.status,
+        issue_date: invoiceForm.issue_date,
+        due_date: invoiceForm.due_date,
+        payment_terms: invoiceForm.payment_terms,
+        notes: invoiceForm.notes || null,
+        description: lineItems.map(i => i.description).join('; '),
+        ...(currentOutlet?.id ? { outlet_id: currentOutlet.id } : {}),
+      })
+      .select()
+      .single();
+
+    if (error) {
+      setIsCreatingInvoice(false);
+      toast.error('Failed to create invoice');
+      return;
+    }
+
+    // Insert line items
+    if (invoice) {
+      await supabase.from('invoice_items').insert(
+        lineItems.map(item => ({
+          invoice_id: invoice.id,
+          description: item.description,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          amount: item.quantity * item.unit_price,
+        }))
+      );
+
+      // Update client total_billed
+      try {
+        await supabase.rpc('increment_client_total_billed', {
+          p_client_id: invoiceForm.client_id,
+          p_amount: invoiceTotal,
+        });
+      } catch {
+        // RPC may not exist; silently skip — the invoice is still created
+      }
+    }
+
+    setIsCreatingInvoice(false);
+    setIsInvoiceDialogOpen(false);
+    toast.success(`Invoice ${invoiceForm.invoice_number} created`);
+    setRefreshKey(prev => prev + 1);
+  };
+
+  const openPaymentDialog = (invoice: any) => {
+    setPaymentTarget(invoice);
+    setPaymentForm({
+      amount: String(parseFloat(invoice.balance) || ''),
+      payment_date: new Date().toISOString().split('T')[0],
+      payment_method: 'bank_transfer',
+      reference: '',
+    });
+  };
+
+  const handleRecordPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!paymentTarget) return;
+
+    const amount = parseFloat(paymentForm.amount);
+    if (!amount || amount <= 0) {
+      toast.error('Enter a valid payment amount');
+      return;
+    }
+
+    setIsRecordingPayment(true);
+    const supabase = createClient();
+
+    const { error: historyError } = await supabase.from('payment_history').insert({
+      invoice_id: paymentTarget.id,
+      invoice_number: paymentTarget.invoice_number,
+      amount,
+      payment_date: paymentForm.payment_date,
+      payment_method: paymentForm.payment_method,
+      reference: paymentForm.reference || null,
+      status: 'completed',
+    });
+
+    if (historyError) {
+      setIsRecordingPayment(false);
+      toast.error('Failed to record payment');
+      return;
+    }
+
+    const prevPaid = parseFloat(paymentTarget.amount_paid) || 0;
+    const totalAmount = parseFloat(paymentTarget.amount) || 0;
+    const newPaid = prevPaid + amount;
+    const newBalance = Math.max(0, totalAmount - newPaid);
+    const newStatus = newBalance <= 0 ? 'paid' : paymentTarget.status === 'overdue' ? 'overdue' : 'pending';
+
+    await supabase
+      .from('invoices')
+      .update({ amount_paid: newPaid, balance: newBalance, status: newStatus })
+      .eq('id', paymentTarget.id);
+
+    // Update client balance
+    if (paymentTarget.client_id) {
+      try {
+        await supabase.rpc('decrement_client_balance', {
+          p_client_id: paymentTarget.client_id,
+          p_amount: amount,
+        });
+      } catch {
+        // RPC may not exist; silently skip
+      }
+    }
+
+    setIsRecordingPayment(false);
+    setPaymentTarget(null);
+    toast.success('Payment recorded successfully');
+    setRefreshKey(prev => prev + 1);
+  };
+
+  const handleCreateExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(expenseForm.amount);
+    if (!amount || amount <= 0) {
+      toast.error('Enter a valid amount');
+      return;
+    }
+
+    setIsCreatingExpense(true);
+    const supabase = createClient();
+
+    const { error } = await supabase.from('expenses').insert({
+      date: expenseForm.date,
+      category: expenseForm.category,
+      description: expenseForm.description,
+      amount,
+      payment_method: expenseForm.payment_method,
+      status: 'pending',
+      ...(currentOutlet?.id ? { outlet_id: currentOutlet.id } : {}),
+    });
+
+    setIsCreatingExpense(false);
+
+    if (error) {
+      toast.error('Failed to create expense');
+      return;
+    }
+
+    setIsExpenseDialogOpen(false);
+    setExpenseForm({ date: new Date().toISOString().split('T')[0], category: 'Other', description: '', amount: '', payment_method: 'bank_transfer' });
+    toast.success('Expense recorded');
     setRefreshKey(prev => prev + 1);
   };
 
@@ -76,33 +321,31 @@ export default function FinancePage() {
   const totalNetIncome = totalRevenue - totalExpenses - totalPayroll;
   const cashBalance = totalRevenue - totalExpenses - totalPayroll;
 
-  // Calculate expense breakdown by category
   const expensesByCategory = expenses.reduce((acc: any, exp: any) => {
     const category = exp.category || 'Other';
     acc[category] = (acc[category] || 0) + (parseFloat(exp.amount) || 0);
     return acc;
   }, {});
 
-  // Calculate AR aging
   const calculateARaging = () => {
     const today = new Date();
     const aging = { current: 0, days30: 0, days60: 0, days90: 0, over90: 0 };
-    
+
     invoices.forEach((inv: any) => {
       if (inv.status === 'paid') return;
       const balance = parseFloat(inv.balance) || 0;
       if (balance <= 0) return;
-      
+
       const dueDate = new Date(inv.due_date);
       const daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-      
+
       if (daysOverdue <= 0) aging.current += balance;
       else if (daysOverdue <= 30) aging.days30 += balance;
       else if (daysOverdue <= 60) aging.days60 += balance;
       else if (daysOverdue <= 90) aging.days90 += balance;
       else aging.over90 += balance;
     });
-    
+
     return aging;
   };
 
@@ -126,10 +369,7 @@ export default function FinancePage() {
               {selectedPeriod === 'current-month' ? 'Current Month' : 'YTD'}
             </Button>
             <SpreadsheetUpload onUploadComplete={handleUploadComplete} />
-            <Button 
-              variant="outline"
-              onClick={handleExportReport}
-            >
+            <Button variant="outline" onClick={handleExportReport}>
               <Download className="h-4 w-4 mr-2" />
               Export Report
             </Button>
@@ -153,16 +393,23 @@ export default function FinancePage() {
             <TabsTrigger value="ar">Accounts Receivable</TabsTrigger>
           </TabsList>
 
+          {/* ── Revenue / Invoices ── */}
           <TabsContent value="revenue" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Revenue / Invoices</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Revenue / Invoices</CardTitle>
+                  <Button className="bg-brand hover:bg-brand-hover" onClick={openNewInvoiceDialog}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    New Invoice
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 {invoices.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12">
                     <Database className="h-12 w-12 text-gray-300 mb-4" />
-                    <p className="text-gray-500">No invoice data. Upload a spreadsheet to get started.</p>
+                    <p className="text-gray-500">No invoices yet. Create your first invoice above.</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -176,6 +423,7 @@ export default function FinancePage() {
                           <TableHead>Balance</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead>Due Date</TableHead>
+                          <TableHead>Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -192,6 +440,17 @@ export default function FinancePage() {
                               </Badge>
                             </TableCell>
                             <TableCell>{inv.due_date}</TableCell>
+                            <TableCell>
+                              {inv.status !== 'paid' && parseFloat(inv.balance) > 0 && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openPaymentDialog(inv)}
+                                >
+                                  Record Payment
+                                </Button>
+                              )}
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -205,6 +464,7 @@ export default function FinancePage() {
             </Card>
           </TabsContent>
 
+          {/* ── P&L ── */}
           <TabsContent value="profitloss" className="space-y-4">
             <Card>
               <CardHeader>
@@ -212,7 +472,6 @@ export default function FinancePage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
-                  {/* Revenue Section */}
                   <div>
                     <h4 className="font-semibold text-green-700 mb-2">Revenue</h4>
                     <div className="bg-green-50 rounded-lg p-4">
@@ -223,7 +482,6 @@ export default function FinancePage() {
                     </div>
                   </div>
 
-                  {/* Expenses Section */}
                   <div>
                     <h4 className="font-semibold text-red-700 mb-2">Operating Expenses</h4>
                     <div className="bg-red-50 rounded-lg p-4 space-y-2">
@@ -249,7 +507,6 @@ export default function FinancePage() {
                     </div>
                   </div>
 
-                  {/* Payroll Section */}
                   <div>
                     <h4 className="font-semibold text-orange-700 mb-2">Payroll Expenses</h4>
                     <div className="bg-orange-50 rounded-lg p-4">
@@ -260,7 +517,6 @@ export default function FinancePage() {
                     </div>
                   </div>
 
-                  {/* Net Income */}
                   <div className="border-t-2 pt-4">
                     <div className={`rounded-lg p-4 ${totalNetIncome >= 0 ? 'bg-green-100' : 'bg-red-100'}`}>
                       <div className="flex justify-between items-center">
@@ -277,6 +533,7 @@ export default function FinancePage() {
             </Card>
           </TabsContent>
 
+          {/* ── Cash Flow ── */}
           <TabsContent value="cashflow" className="space-y-4">
             <Card>
               <CardHeader>
@@ -284,7 +541,6 @@ export default function FinancePage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
-                  {/* Cash Inflows */}
                   <div>
                     <h4 className="font-semibold text-green-700 mb-3 flex items-center gap-2">
                       <ArrowUpRight className="h-4 w-4" />
@@ -302,7 +558,6 @@ export default function FinancePage() {
                     </div>
                   </div>
 
-                  {/* Cash Outflows */}
                   <div>
                     <h4 className="font-semibold text-red-700 mb-3 flex items-center gap-2">
                       <ArrowDownRight className="h-4 w-4" />
@@ -324,7 +579,6 @@ export default function FinancePage() {
                     </div>
                   </div>
 
-                  {/* Net Cash Flow */}
                   <div className="border-t-2 pt-4">
                     <div className={`rounded-lg p-4 ${cashBalance >= 0 ? 'bg-blue-100' : 'bg-red-100'}`}>
                       <div className="flex justify-between items-center">
@@ -336,7 +590,6 @@ export default function FinancePage() {
                     </div>
                   </div>
 
-                  {/* Outstanding Receivables */}
                   <div className="border-t pt-4">
                     <div className="bg-yellow-50 rounded-lg p-4">
                       <div className="flex justify-between items-center">
@@ -353,16 +606,23 @@ export default function FinancePage() {
             </Card>
           </TabsContent>
 
+          {/* ── Expenses ── */}
           <TabsContent value="expenses" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Expenses</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Expenses</CardTitle>
+                  <Button className="bg-brand hover:bg-brand-hover" onClick={() => setIsExpenseDialogOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    New Expense
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 {expenses.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12">
                     <Database className="h-12 w-12 text-gray-300 mb-4" />
-                    <p className="text-gray-500">No expense data. Upload a spreadsheet to get started.</p>
+                    <p className="text-gray-500">No expenses yet. Record your first expense above.</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -401,57 +661,28 @@ export default function FinancePage() {
             </Card>
           </TabsContent>
 
+          {/* ── Accounts Receivable ── */}
           <TabsContent value="ar" className="space-y-4">
-            {/* AR Aging Summary */}
             <div className="grid gap-4 md:grid-cols-5">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-500">Current</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-xl font-bold text-green-600">{formatCurrency(arAging.current)}</div>
-                  <p className="text-xs text-gray-500">Not yet due</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-500">1-30 Days</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-xl font-bold text-yellow-600">{formatCurrency(arAging.days30)}</div>
-                  <p className="text-xs text-gray-500">Overdue</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-500">31-60 Days</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-xl font-bold text-orange-600">{formatCurrency(arAging.days60)}</div>
-                  <p className="text-xs text-gray-500">Overdue</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-500">61-90 Days</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-xl font-bold text-red-500">{formatCurrency(arAging.days90)}</div>
-                  <p className="text-xs text-gray-500">Overdue</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-500">90+ Days</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-xl font-bold text-red-700">{formatCurrency(arAging.over90)}</div>
-                  <p className="text-xs text-gray-500">Severely overdue</p>
-                </CardContent>
-              </Card>
+              {[
+                { label: 'Current', value: arAging.current, color: 'text-green-600', sub: 'Not yet due' },
+                { label: '1-30 Days', value: arAging.days30, color: 'text-yellow-600', sub: 'Overdue' },
+                { label: '31-60 Days', value: arAging.days60, color: 'text-orange-600', sub: 'Overdue' },
+                { label: '61-90 Days', value: arAging.days90, color: 'text-red-500', sub: 'Overdue' },
+                { label: '90+ Days', value: arAging.over90, color: 'text-red-700', sub: 'Severely overdue' },
+              ].map(({ label, value, color, sub }) => (
+                <Card key={label}>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-500">{label}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className={`text-xl font-bold ${color}`}>{formatCurrency(value)}</div>
+                    <p className="text-xs text-gray-500">{sub}</p>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
 
-            {/* Client AR Details */}
             <Card>
               <CardHeader>
                 <CardTitle>Accounts Receivable by Client</CardTitle>
@@ -492,13 +723,12 @@ export default function FinancePage() {
               </CardContent>
             </Card>
 
-            {/* Overdue Invoices */}
             <Card>
               <CardHeader>
                 <CardTitle>Overdue Invoices</CardTitle>
               </CardHeader>
               <CardContent>
-                {invoices.filter((inv: any) => inv.status === 'overdue' || (inv.status !== 'paid' && new Date(inv.due_date) < new Date())).length === 0 ? (
+                {invoices.filter((inv: any) => inv.status !== 'paid' && parseFloat(inv.balance) > 0).length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12">
                     <Database className="h-12 w-12 text-gray-300 mb-4" />
                     <p className="text-gray-500">No overdue invoices</p>
@@ -519,7 +749,9 @@ export default function FinancePage() {
                         {invoices
                           .filter((inv: any) => inv.status !== 'paid' && parseFloat(inv.balance) > 0)
                           .map((inv: any) => {
-                            const daysOverdue = Math.floor((new Date().getTime() - new Date(inv.due_date).getTime()) / (1000 * 60 * 60 * 24));
+                            const daysOverdue = Math.floor(
+                              (new Date().getTime() - new Date(inv.due_date).getTime()) / (1000 * 60 * 60 * 24)
+                            );
                             return (
                               <TableRow key={inv.id}>
                                 <TableCell className="font-medium">{inv.invoice_number}</TableCell>
@@ -544,6 +776,368 @@ export default function FinancePage() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* ── New Invoice Dialog ── */}
+        <Dialog open={isInvoiceDialogOpen} onOpenChange={setIsInvoiceDialogOpen}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Create New Invoice</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleCreateInvoice} className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="inv-client">Client *</Label>
+                  <Select
+                    value={invoiceForm.client_id}
+                    onValueChange={(v) => setInvoiceForm({ ...invoiceForm, client_id: v })}
+                  >
+                    <SelectTrigger id="inv-client">
+                      <SelectValue placeholder="Select client" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients.map((c: any) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}{c.company ? ` — ${c.company}` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="inv-number">Invoice Number</Label>
+                  <Input
+                    id="inv-number"
+                    value={invoiceForm.invoice_number}
+                    onChange={(e) => setInvoiceForm({ ...invoiceForm, invoice_number: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="inv-issue">Issue Date</Label>
+                  <Input
+                    id="inv-issue"
+                    type="date"
+                    value={invoiceForm.issue_date}
+                    onChange={(e) => setInvoiceForm({ ...invoiceForm, issue_date: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="inv-due">Due Date</Label>
+                  <Input
+                    id="inv-due"
+                    type="date"
+                    value={invoiceForm.due_date}
+                    onChange={(e) => setInvoiceForm({ ...invoiceForm, due_date: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="inv-terms">Payment Terms</Label>
+                  <Select
+                    value={invoiceForm.payment_terms}
+                    onValueChange={(v) => setInvoiceForm({ ...invoiceForm, payment_terms: v })}
+                  >
+                    <SelectTrigger id="inv-terms">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Net 15">Net 15</SelectItem>
+                      <SelectItem value="Net 30">Net 30</SelectItem>
+                      <SelectItem value="Net 45">Net 45</SelectItem>
+                      <SelectItem value="Net 60">Net 60</SelectItem>
+                      <SelectItem value="Due on Receipt">Due on Receipt</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="inv-status">Status</Label>
+                  <Select
+                    value={invoiceForm.status}
+                    onValueChange={(v) => setInvoiceForm({ ...invoiceForm, status: v as 'draft' | 'sent' })}
+                  >
+                    <SelectTrigger id="inv-status">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="draft">Draft</SelectItem>
+                      <SelectItem value="sent">Sent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Line Items */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Line Items *</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setLineItems([...lineItems, { description: '', quantity: 1, unit_price: 0 }])}
+                  >
+                    <Plus className="h-3 w-3 mr-1" /> Add Line
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-12 gap-2 text-xs text-gray-500 px-1">
+                    <span className="col-span-6">Description</span>
+                    <span className="col-span-2 text-center">Qty</span>
+                    <span className="col-span-2 text-right">Unit Price</span>
+                    <span className="col-span-1 text-right">Total</span>
+                    <span className="col-span-1" />
+                  </div>
+                  {lineItems.map((item, idx) => (
+                    <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                      <Input
+                        className="col-span-6"
+                        placeholder="Description"
+                        value={item.description}
+                        onChange={(e) => {
+                          const updated = [...lineItems];
+                          updated[idx] = { ...updated[idx], description: e.target.value };
+                          setLineItems(updated);
+                        }}
+                        required
+                      />
+                      <Input
+                        className="col-span-2"
+                        type="number"
+                        min="1"
+                        value={item.quantity}
+                        onChange={(e) => {
+                          const updated = [...lineItems];
+                          updated[idx] = { ...updated[idx], quantity: parseFloat(e.target.value) || 1 };
+                          setLineItems(updated);
+                        }}
+                      />
+                      <Input
+                        className="col-span-2"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={item.unit_price || ''}
+                        onChange={(e) => {
+                          const updated = [...lineItems];
+                          updated[idx] = { ...updated[idx], unit_price: parseFloat(e.target.value) || 0 };
+                          setLineItems(updated);
+                        }}
+                      />
+                      <span className="col-span-1 text-right text-sm font-medium">
+                        {formatCurrency(item.quantity * item.unit_price)}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="col-span-1 text-red-500 hover:text-red-700"
+                        onClick={() => setLineItems(lineItems.filter((_, i) => i !== idx))}
+                        disabled={lineItems.length === 1}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <div className="flex justify-end pt-1 border-t">
+                    <span className="text-sm font-semibold">Total: {formatCurrency(invoiceTotal)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="inv-notes">Notes (Optional)</Label>
+                <Input
+                  id="inv-notes"
+                  value={invoiceForm.notes}
+                  onChange={(e) => setInvoiceForm({ ...invoiceForm, notes: e.target.value })}
+                  placeholder="Additional notes for the client"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4">
+                <Button type="button" variant="outline" onClick={() => setIsInvoiceDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" className="bg-brand hover:bg-brand-hover" disabled={isCreatingInvoice}>
+                  {isCreatingInvoice && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  Create Invoice
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* ── Record Payment Dialog ── */}
+        <Dialog open={!!paymentTarget} onOpenChange={() => setPaymentTarget(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Record Payment</DialogTitle>
+            </DialogHeader>
+            {paymentTarget && (
+              <form onSubmit={handleRecordPayment} className="space-y-4">
+                <div className="bg-gray-50 rounded-lg p-3 text-sm">
+                  <p><span className="text-gray-500">Invoice:</span> <strong>{paymentTarget.invoice_number}</strong></p>
+                  <p><span className="text-gray-500">Client:</span> {paymentTarget.clients?.name || 'N/A'}</p>
+                  <p><span className="text-gray-500">Balance due:</span> <strong>{formatCurrency(paymentTarget.balance)}</strong></p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="pay-amount">Amount *</Label>
+                  <Input
+                    id="pay-amount"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    max={parseFloat(paymentTarget.balance)}
+                    value={paymentForm.amount}
+                    onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="pay-date">Payment Date</Label>
+                  <Input
+                    id="pay-date"
+                    type="date"
+                    value={paymentForm.payment_date}
+                    onChange={(e) => setPaymentForm({ ...paymentForm, payment_date: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="pay-method">Payment Method</Label>
+                  <Select
+                    value={paymentForm.payment_method}
+                    onValueChange={(v) => setPaymentForm({ ...paymentForm, payment_method: v })}
+                  >
+                    <SelectTrigger id="pay-method">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PAYMENT_METHODS.map(m => (
+                        <SelectItem key={m} value={m} className="capitalize">{m.replace('_', ' ')}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="pay-ref">Reference Number (Optional)</Label>
+                  <Input
+                    id="pay-ref"
+                    value={paymentForm.reference}
+                    onChange={(e) => setPaymentForm({ ...paymentForm, reference: e.target.value })}
+                    placeholder="Check #, wire reference, etc."
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-4">
+                  <Button type="button" variant="outline" onClick={() => setPaymentTarget(null)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" className="bg-brand hover:bg-brand-hover" disabled={isRecordingPayment}>
+                    {isRecordingPayment && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                    Record Payment
+                  </Button>
+                </div>
+              </form>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* ── New Expense Dialog ── */}
+        <Dialog open={isExpenseDialogOpen} onOpenChange={setIsExpenseDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Record Expense</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleCreateExpense} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="exp-date">Date</Label>
+                <Input
+                  id="exp-date"
+                  type="date"
+                  value={expenseForm.date}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, date: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="exp-category">Category</Label>
+                <Select
+                  value={expenseForm.category}
+                  onValueChange={(v) => setExpenseForm({ ...expenseForm, category: v })}
+                >
+                  <SelectTrigger id="exp-category">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EXPENSE_CATEGORIES.map(c => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="exp-description">Description *</Label>
+                <Input
+                  id="exp-description"
+                  value={expenseForm.description}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
+                  placeholder="What was this expense for?"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="exp-amount">Amount *</Label>
+                <Input
+                  id="exp-amount"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={expenseForm.amount}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
+                  placeholder="0.00"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="exp-method">Payment Method</Label>
+                <Select
+                  value={expenseForm.payment_method}
+                  onValueChange={(v) => setExpenseForm({ ...expenseForm, payment_method: v })}
+                >
+                  <SelectTrigger id="exp-method">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAYMENT_METHODS.map(m => (
+                      <SelectItem key={m} value={m} className="capitalize">{m.replace('_', ' ')}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4">
+                <Button type="button" variant="outline" onClick={() => setIsExpenseDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" className="bg-brand hover:bg-brand-hover" disabled={isCreatingExpense}>
+                  {isCreatingExpense && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  Record Expense
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
     </MainLayout>
   );

@@ -31,7 +31,7 @@ import { PayrollRecord } from '@/types';
 
 export default function EmployeesPage() {
   const router = useRouter();
-  const { user } = useStore();
+  const { user, currentOutlet } = useStore();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -41,10 +41,9 @@ export default function EmployeesPage() {
   useEffect(() => {
     const fetchEmployees = async () => {
       const supabase = createClient();
-      const { data, error } = await supabase
-        .from('employees')
-        .select('*')
-        .order('created_at', { ascending: false });
+      let query = supabase.from('employees').select('*').order('created_at', { ascending: false });
+      if (currentOutlet?.id) query = query.eq('outlet_id', currentOutlet.id);
+      const { data, error } = await query;
       
       if (!error && data) {
         const mappedEmployees = data.map((e: any) => ({

@@ -1,5 +1,13 @@
 export type UserRole = 'admin' | 'manager' | 'employee' | 'client';
 
+export interface Outlet {
+  id: string;
+  name: string;
+  code: string;
+  description?: string;
+  status: 'active' | 'inactive';
+}
+
 export interface User {
   id: string;
   email: string;
@@ -7,6 +15,7 @@ export interface User {
   role: UserRole;
   avatar?: string;
   department?: string;
+  outletId?: string | null; // null = super-admin (can switch); set = locked to that outlet
 }
 
 export interface Client {
@@ -346,4 +355,22 @@ export interface PaymentHistory {
   paymentMethod: 'bank_transfer' | 'credit_card' | 'cash' | 'check';
   reference: string;
   status: 'completed' | 'pending' | 'failed';
+}
+
+export interface Commission {
+  id: string;
+  employeeId: string;
+  employeeName?: string;
+  invoiceId?: string;
+  invoiceNumber: string;
+  clientId?: string;
+  clientName?: string;
+  rate: number;             // percentage, e.g. 10 = 10%
+  baseAmount: number;       // invoice total commission is calculated on
+  commissionAmount: number; // rate / 100 * baseAmount
+  status: 'pending' | 'approved' | 'paid';
+  notes?: string;
+  createdAt: string;
+  approvedAt?: string;
+  paidAt?: string;
 }

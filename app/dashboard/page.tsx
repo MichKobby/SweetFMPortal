@@ -37,16 +37,36 @@ import { RevenueData, ExpenseBreakdown } from '@/types';
 
 const COLORS = ['#c81f25', '#facc15', '#3b82f6', '#8b5cf6', '#10b981', '#f59e0b'];
 
+interface ClientRow {
+  id: string;
+  total_billed: string | number | null;
+  status: string;
+  [key: string]: unknown;
+}
+
+interface EmployeeRow {
+  id: string;
+  salary: string | number | null;
+  [key: string]: unknown;
+}
+
+interface ExpenseRow {
+  id: string;
+  amount: string | number | null;
+  status: string;
+  [key: string]: unknown;
+}
+
 interface DashboardData {
-  clients: any[];
-  employees: any[];
-  invoices: any[];
-  expenses: any[];
+  clients: ClientRow[];
+  employees: EmployeeRow[];
+  invoices: Record<string, unknown>[];
+  expenses: ExpenseRow[];
 }
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user } = useStore();
+  const { user, currentOutlet } = useStore();
   const [data, setData] = useState<DashboardData>({
     clients: [],
     employees: [],
@@ -60,11 +80,18 @@ export default function DashboardPage() {
     const fetchDashboardData = async () => {
       const supabase = createClient();
       
+      const outletId = currentOutlet?.id;
       const [clientsRes, employeesRes, invoicesRes, expensesRes] = await Promise.all([
         supabase.from('clients').select('*'),
-        supabase.from('employees').select('*'),
-        supabase.from('invoices').select('*'),
-        supabase.from('expenses').select('*'),
+        outletId
+          ? supabase.from('employees').select('*').eq('outlet_id', outletId)
+          : supabase.from('employees').select('*'),
+        outletId
+          ? supabase.from('invoices').select('*').eq('outlet_id', outletId)
+          : supabase.from('invoices').select('*'),
+        outletId
+          ? supabase.from('expenses').select('*').eq('outlet_id', outletId)
+          : supabase.from('expenses').select('*'),
       ]);
 
       setData({
@@ -79,7 +106,7 @@ export default function DashboardPage() {
     if (user) {
       fetchDashboardData();
     }
-  }, [user]);
+  }, [user, currentOutlet?.id]);
 
   const { clients, employees, invoices, expenses } = data;
 
@@ -116,9 +143,9 @@ export default function DashboardPage() {
   }
 
   // Calculate KPIs from Supabase data
-  const totalRevenue = clients.reduce((sum, client) => sum + (parseFloat(client.total_billed) || 0), 0);
-  const totalExpenses = expenses.reduce((sum, expense) => sum + (parseFloat(expense.amount) || 0), 0);
-  const totalPayroll = employees.reduce((sum, employee) => sum + (parseFloat(employee.salary) || 0), 0);
+  const totalRevenue = clients.reduce((sum, client) => sum + (parseFloat(String(client.total_billed ?? 0)) || 0), 0);
+  const totalExpenses = expenses.reduce((sum, expense) => sum + (parseFloat(String(expense.amount ?? 0)) || 0), 0);
+  const totalPayroll = employees.reduce((sum, employee) => sum + (parseFloat(String(employee.salary ?? 0)) || 0), 0);
   const netProfit = totalRevenue - totalExpenses - totalPayroll;
 
   // Placeholder changes until real data is connected
@@ -126,8 +153,8 @@ export default function DashboardPage() {
   const expenseChange = 0;
   const profitChange = 0;
 
-  const overdueClients = clients.filter((c: any) => c.status === 'overdue').length;
-  const pendingExpenses = expenses.filter((e: any) => e.status === 'pending').length;
+  const overdueClients = clients.filter((c) => c.status === 'overdue').length;
+  const pendingExpenses = expenses.filter((e) => e.status === 'pending').length;
   
   // Empty data for charts until connected to database
   const revenueData: RevenueData[] = [];

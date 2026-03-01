@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils';
 const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export default function MySchedulePage() {
-  const { user } = useStore();
+  const { user, currentOutlet } = useStore();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [shifts, setShifts] = useState<any[]>([]);
   const [shows, setShows] = useState<any[]>([]);
@@ -48,10 +48,10 @@ export default function MySchedulePage() {
         })));
       }
 
-      // Fetch all shows
-      const { data: allShows } = await supabase
-        .from('shows')
-        .select('*');
+      // Fetch all shows for this outlet
+      let showsQuery = supabase.from('shows').select('*');
+      if (currentOutlet?.id) showsQuery = showsQuery.eq('outlet_id', currentOutlet.id);
+      const { data: allShows } = await showsQuery;
 
       if (allShows) setShows(allShows);
 
@@ -59,7 +59,8 @@ export default function MySchedulePage() {
     };
 
     fetchSchedule();
-  }, [user?.email]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.email, currentOutlet?.id]);
 
   // Get current week dates
   const getWeekDates = (date: Date) => {

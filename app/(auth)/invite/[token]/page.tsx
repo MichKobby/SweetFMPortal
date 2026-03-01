@@ -52,7 +52,7 @@ export default function AcceptInvitePage() {
         const supabase = createClient();
         const { data, error } = await supabase
           .from('invitations')
-          .select('*')
+          .select('id, email, role, department, expires_at, accepted_at')
           .eq('token', token)
           .single();
 
@@ -140,22 +140,21 @@ export default function AcceptInvitePage() {
         return;
       }
 
-      // Wait a moment for the trigger to create the profile
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Sign in immediately — the network round-trip gives the DB trigger
+      // time to create the profile row, removing the need for an arbitrary delay.
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: invitation.email,
+        password: formData.password,
+      });
 
-      // Update the profile with department if provided (trigger may not set it)
-      if (invitation.department) {
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({ department: invitation.department })
-          .eq('id', authData.user.id);
-        
-        if (updateError) {
-          console.error('Profile update error:', updateError);
-        }
+      if (signInError) {
+        // Account created but sign-in failed (likely awaiting email confirmation).
+        // Do NOT mark the invitation as accepted so the user can retry.
+        setError('Account created! Please check your email to confirm, then log in.');
+        return;
       }
 
-      // Mark invitation as accepted
+      // Only mark as accepted after a confirmed successful sign-in.
       const { error: inviteError } = await supabase
         .from('invitations')
         .update({ accepted_at: new Date().toISOString() })
@@ -165,16 +164,16 @@ export default function AcceptInvitePage() {
         console.error('Invitation update error:', inviteError);
       }
 
-      // Sign in the user
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: invitation.email,
-        password: formData.password,
-      });
+      // Update department if provided — profile row exists by now.
+      if (invitation.department) {
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ department: invitation.department })
+          .eq('id', authData.user.id);
 
-      if (signInError) {
-        // User was created but sign-in failed - might need email confirmation
-        setError('Account created! Please check your email to confirm, then log in.');
-        return;
+        if (updateError) {
+          console.error('Profile update error:', updateError);
+        }
       }
 
       router.push('/dashboard');

@@ -21,7 +21,7 @@ const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const daysOfWeekFull = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export default function SchedulePage() {
-  const { user } = useStore();
+  const { user, currentOutlet } = useStore();
   const [shows, setShows] = useState<any[]>([]);
   const [adSlots, setAdSlots] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
@@ -38,10 +38,18 @@ export default function SchedulePage() {
   // Fetch data from Supabase
   const fetchData = async () => {
     const supabase = createClient();
-    
+    const outletId = currentOutlet?.id;
+
+    let showsQuery = supabase.from('shows').select('*').order('start_time');
+    let adSlotsQuery = supabase.from('ad_slots').select('*, clients(name, company)').order('time');
+    if (outletId) {
+      showsQuery = showsQuery.eq('outlet_id', outletId);
+      adSlotsQuery = adSlotsQuery.eq('outlet_id', outletId);
+    }
+
     const [showsRes, adSlotsRes, clientsRes] = await Promise.all([
-      supabase.from('shows').select('*').order('start_time'),
-      supabase.from('ad_slots').select('*, clients(name, company)').order('time'),
+      showsQuery,
+      adSlotsQuery,
       supabase.from('clients').select('id, name, company'),
     ]);
 
@@ -93,7 +101,8 @@ export default function SchedulePage() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentOutlet?.id]);
 
   const handleAddShow = async (show: Show) => {
     const supabase = createClient();
@@ -134,6 +143,7 @@ export default function SchedulePage() {
         end_date: show.endDate,
         color: show.color,
         status: show.status,
+        ...(currentOutlet?.id ? { outlet_id: currentOutlet.id } : {}),
       });
       
       if (!error) {
@@ -208,6 +218,7 @@ export default function SchedulePage() {
         status: adSlot.status,
         cost: adSlot.cost,
         notes: adSlot.notes || null,
+        ...(currentOutlet?.id ? { outlet_id: currentOutlet.id } : {}),
       });
       
       if (!error) {

@@ -12,11 +12,11 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertCircle, Shield, Key, Trash2, UserPlus, Loader2 } from 'lucide-react';
+import { AlertCircle, Shield, Trash2, UserPlus, Loader2, Radio, Edit2, Check, X } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import type { UserRole } from '@/types';
 
 interface Profile {
@@ -28,30 +28,79 @@ interface Profile {
 }
 
 export default function SettingsPage() {
-  const { user } = useStore();
+  const { user, setUser } = useStore();
   const router = useRouter();
-  
+
   // User management state
-  const [selectedUserId, setSelectedUserId] = useState<string>('');
-  const [newPassword, setNewPassword] = useState('');
-  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
-  const [isAddUserOpen, setIsAddUserOpen] = useState(false);
-  const [newUserData, setNewUserData] = useState({
-    name: '',
-    email: '',
-    role: 'employee' as UserRole,
-    department: ''
-  });
-  
-  // Supabase users state
   const [users, setUsers] = useState<Profile[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
-  
-  // Profile state - must be before early return
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
+
+  // Profile state
   const [profileData, setProfileData] = useState({
     name: user?.name || '',
     email: user?.email || '',
     phone: '',
+  });
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  // Password state
+  const [passwordData, setPasswordData] = useState({
+    current: '',
+    new: '',
+    confirm: '',
+  });
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  // Outlets state
+  const [outlets, setOutlets] = useState<{ id: string; name: string; code: string; description: string | null; status: string }[]>([]);
+  const [loadingOutlets, setLoadingOutlets] = useState(true);
+  const [editingOutlet, setEditingOutlet] = useState<string | null>(null);
+  const [outletEditForm, setOutletEditForm] = useState({ name: '', description: '' });
+  const [isSavingOutlet, setIsSavingOutlet] = useState(false);
+
+  useEffect(() => {
+    const fetchOutlets = async () => {
+      const supabase = createClient();
+      const { data } = await supabase.from('outlets').select('id, name, code, description, status').order('name');
+      if (data) setOutlets(data);
+      setLoadingOutlets(false);
+    };
+    fetchOutlets();
+  }, []);
+
+  const startEditOutlet = (outlet: typeof outlets[0]) => {
+    setEditingOutlet(outlet.id);
+    setOutletEditForm({ name: outlet.name, description: outlet.description ?? '' });
+  };
+
+  const cancelEditOutlet = () => {
+    setEditingOutlet(null);
+    setOutletEditForm({ name: '', description: '' });
+  };
+
+  const saveOutlet = async (id: string) => {
+    if (!outletEditForm.name.trim()) { return; }
+    setIsSavingOutlet(true);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('outlets')
+      .update({ name: outletEditForm.name.trim(), description: outletEditForm.description.trim() || null })
+      .eq('id', id);
+    setIsSavingOutlet(false);
+    if (error) { toast.error('Failed to update outlet'); return; }
+    setOutlets(prev => prev.map(o => o.id === id ? { ...o, name: outletEditForm.name.trim(), description: outletEditForm.description.trim() || null } : o));
+    toast.success('Outlet updated');
+    setEditingOutlet(null);
+  };
+
+  // Notification preferences state
+  const [notifPrefs, setNotifPrefs] = useState({
+    email: true,
+    invoiceReminders: true,
+    paymentConfirmations: true,
+    systemUpdates: false,
   });
 
   // Fetch users from Supabase
@@ -62,7 +111,7 @@ export default function SettingsPage() {
         .from('profiles')
         .select('*')
         .order('created_at', { ascending: false });
-      
+
       if (!error && data) {
         setUsers(data);
       } else {
@@ -70,11 +119,11 @@ export default function SettingsPage() {
       }
       setLoadingUsers(false);
     };
-    
+
     fetchUsers();
   }, []);
 
-  // Check if user is admin
+  // Redirect non-admins
   useEffect(() => {
     if (user && user.role !== 'admin') {
       toast.error('Access denied. Only administrators can access settings.');
@@ -82,7 +131,6 @@ export default function SettingsPage() {
     }
   }, [user, router]);
 
-  // Show loading or redirect if not admin
   if (!user || user.role !== 'admin') {
     return (
       <MainLayout>
@@ -99,7 +147,7 @@ export default function SettingsPage() {
                     Only administrators can access the settings page.
                   </p>
                 </div>
-                <Button 
+                <Button
                   onClick={() => router.push('/dashboard')}
                   className="bg-[#c81f25] hover:bg-[#a01820]"
                 >
@@ -113,86 +161,116 @@ export default function SettingsPage() {
     );
   }
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast.success('Profile updated successfully');
+    setIsSavingProfile(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('profiles')
+        .update({ name: profileData.name })
+        .eq('id', user.id);
+
+      if (error) {
+        toast.error('Failed to update profile');
+        return;
+      }
+
+      // Keep local store in sync
+      setUser({ ...user, name: profileData.name });
+      toast.success('Profile updated successfully');
+    } finally {
+      setIsSavingProfile(false);
+    }
   };
 
-  const handleChangePassword = (e: React.FormEvent) => {
+  const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast.success('Password changed successfully');
+
+    if (passwordData.new !== passwordData.confirm) {
+      toast.error('New passwords do not match');
+      return;
+    }
+    if (passwordData.new.length < 8) {
+      toast.error('Password must be at least 8 characters');
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      const supabase = createClient();
+
+      // Re-authenticate with the current password to confirm identity
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: passwordData.current,
+      });
+      if (signInError) {
+        toast.error('Current password is incorrect');
+        return;
+      }
+
+      const { error } = await supabase.auth.updateUser({ password: passwordData.new });
+      if (error) {
+        toast.error('Failed to update password: ' + error.message);
+        return;
+      }
+
+      setPasswordData({ current: '', new: '', confirm: '' });
+      toast.success('Password updated successfully');
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
 
   const handleRoleChange = async (userId: string, newRole: string) => {
-    const supabase = createClient();
-    const { error } = await supabase
-      .from('profiles')
-      .update({ role: newRole })
-      .eq('id', userId);
-    
-    if (error) {
-      toast.error('Failed to update user role');
+    const res = await fetch('/api/admin/update-role', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, role: newRole }),
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      toast.error(body.error ?? 'Failed to update user role');
       return;
     }
-    
+
     setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
     toast.success('User role updated successfully');
   };
 
-  const handlePasswordReset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedUserId || !newPassword) {
-      toast.error('Please fill in all fields');
-      return;
-    }
-    // Note: Password reset requires admin API or sending reset email
-    toast.info('Password reset functionality requires Supabase Admin API');
-    setIsResetPasswordOpen(false);
-    setSelectedUserId('');
-    setNewPassword('');
-  };
+  const confirmDeleteUser = async () => {
+    if (!deleteTarget) return;
+    setIsDeletingUser(true);
+    try {
+      const res = await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: deleteTarget.id }),
+      });
 
-  const handleDeleteUser = async (userId: string, userName: string) => {
-    if (userId === user?.id) {
-      toast.error('You cannot delete your own account');
-      return;
-    }
-    if (confirm(`Are you sure you want to delete user "${userName}"? This action cannot be undone.`)) {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('id', userId);
-      
-      if (error) {
-        toast.error('Failed to delete user');
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast.error(body.error ?? 'Failed to delete user');
         return;
       }
-      
-      setUsers(users.filter(u => u.id !== userId));
-      toast.success('User deleted successfully');
-    }
-  };
 
-  const handleAddUser = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Redirect to the invite system instead
-    router.push('/settings/users');
-    setIsAddUserOpen(false);
+      setUsers(users.filter(u => u.id !== deleteTarget.id));
+      toast.success('User deleted successfully');
+    } finally {
+      setIsDeletingUser(false);
+      setDeleteTarget(null);
+    }
   };
 
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
-      case 'admin':
-        return 'bg-red-100 text-red-800';
-      case 'manager':
-        return 'bg-blue-100 text-blue-800';
-      case 'employee':
-        return 'bg-green-100 text-green-800';
-      case 'client':
-        return 'bg-gray-100 text-gray-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
+      case 'admin': return 'bg-red-100 text-red-800';
+      case 'manager': return 'bg-blue-100 text-blue-800';
+      case 'employee': return 'bg-green-100 text-green-800';
+      case 'client': return 'bg-gray-100 text-gray-800';
+      default: return 'bg-gray-100 text-gray-800';
     }
   };
 
@@ -214,11 +292,11 @@ export default function SettingsPage() {
             <TabsTrigger value="security">Security</TabsTrigger>
             <TabsTrigger value="notifications">Notifications</TabsTrigger>
             <TabsTrigger value="preferences">Preferences</TabsTrigger>
+            <TabsTrigger value="outlets">Outlets</TabsTrigger>
           </TabsList>
 
           {/* User Management Tab */}
           <TabsContent value="users" className="space-y-4">
-            {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <Card>
                 <CardContent className="pt-6">
@@ -258,7 +336,7 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle>User Management</CardTitle>
-                  <Button 
+                  <Button
                     className="bg-[#c81f25] hover:bg-[#a01820]"
                     onClick={() => router.push('/settings/users')}
                   >
@@ -273,131 +351,72 @@ export default function SettingsPage() {
                     <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
                   </div>
                 ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Department</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {users.map((u) => (
-                      <TableRow key={u.id}>
-                        <TableCell className="font-medium">{u.name}</TableCell>
-                        <TableCell>{u.email}</TableCell>
-                        <TableCell>{u.department || '-'}</TableCell>
-                        <TableCell>
-                          <Select
-                            value={u.role}
-                            onValueChange={(value) => handleRoleChange(u.id, value)}
-                            disabled={u.id === user?.id}
-                          >
-                            <SelectTrigger className="w-[130px]">
-                              <SelectValue>
-                                <Badge className={getRoleBadgeColor(u.role)}>
-                                  {u.role}
-                                </Badge>
-                              </SelectValue>
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="admin">
-                                <div className="flex items-center gap-2">
-                                  <Shield className="h-4 w-4" />
-                                  Admin
-                                </div>
-                              </SelectItem>
-                              <SelectItem value="manager">
-                                <div className="flex items-center gap-2">
-                                  <Shield className="h-4 w-4" />
-                                  Manager
-                                </div>
-                              </SelectItem>
-                              <SelectItem value="employee">
-                                <div className="flex items-center gap-2">
-                                  <Shield className="h-4 w-4" />
-                                  Employee
-                                </div>
-                              </SelectItem>
-                              <SelectItem value="client">
-                                <div className="flex items-center gap-2">
-                                  <Shield className="h-4 w-4" />
-                                  Client
-                                </div>
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Dialog open={isResetPasswordOpen && selectedUserId === u.id} onOpenChange={(open) => {
-                              setIsResetPasswordOpen(open);
-                              if (open) setSelectedUserId(u.id);
-                              else { setSelectedUserId(''); setNewPassword(''); }
-                            }}>
-                              <DialogTrigger asChild>
-                                <Button variant="outline" size="sm">
-                                  <Key className="h-4 w-4 mr-1" />
-                                  Reset Password
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Reset Password for {u.name}</DialogTitle>
-                                </DialogHeader>
-                                <form onSubmit={handlePasswordReset} className="space-y-4">
-                                  <div className="space-y-2">
-                                    <Label htmlFor="newPassword">New Password</Label>
-                                    <Input
-                                      id="newPassword"
-                                      type="password"
-                                      value={newPassword}
-                                      onChange={(e) => setNewPassword(e.target.value)}
-                                      placeholder="Enter new password"
-                                      required
-                                    />
-                                  </div>
-                                  <DialogFooter>
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      onClick={() => {
-                                        setIsResetPasswordOpen(false);
-                                        setSelectedUserId('');
-                                        setNewPassword('');
-                                      }}
-                                    >
-                                      Cancel
-                                    </Button>
-                                    <Button type="submit" className="bg-[#c81f25] hover:bg-[#a01820]">
-                                      Reset Password
-                                    </Button>
-                                  </DialogFooter>
-                                </form>
-                              </DialogContent>
-                            </Dialog>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Department</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {users.map((u) => (
+                        <TableRow key={u.id}>
+                          <TableCell className="font-medium">{u.name}</TableCell>
+                          <TableCell>{u.email}</TableCell>
+                          <TableCell>{u.department || '-'}</TableCell>
+                          <TableCell>
+                            <Select
+                              value={u.role}
+                              onValueChange={(value) => handleRoleChange(u.id, value)}
+                              disabled={u.id === user?.id}
+                            >
+                              <SelectTrigger className="w-[130px]">
+                                <SelectValue>
+                                  <Badge className={getRoleBadgeColor(u.role)}>
+                                    {u.role}
+                                  </Badge>
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(['admin', 'manager', 'employee', 'client'] as UserRole[]).map((role) => (
+                                  <SelectItem key={role} value={role}>
+                                    <div className="flex items-center gap-2">
+                                      <Shield className="h-4 w-4" />
+                                      {role.charAt(0).toUpperCase() + role.slice(1)}
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell>
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleDeleteUser(u.id, u.name)}
+                              onClick={() => {
+                                if (u.id === user?.id) {
+                                  toast.error('You cannot delete your own account');
+                                  return;
+                                }
+                                setDeleteTarget({ id: u.id, name: u.name });
+                              }}
                               disabled={u.id === user?.id}
                               className="text-red-600 hover:text-red-700 hover:bg-red-50"
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 )}
               </CardContent>
             </Card>
           </TabsContent>
-
 
           {/* Profile Tab */}
           <TabsContent value="profile">
@@ -438,8 +457,10 @@ export default function SettingsPage() {
                         id="email"
                         type="email"
                         value={profileData.email}
-                        onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
+                        disabled
+                        className="bg-gray-50"
                       />
+                      <p className="text-xs text-gray-500">Email cannot be changed here.</p>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="phone">Phone</Label>
@@ -455,13 +476,21 @@ export default function SettingsPage() {
                         id="role"
                         value={user?.role}
                         disabled
-                        className="capitalize"
+                        className="capitalize bg-gray-50"
                       />
                     </div>
                   </div>
 
-                  <Button type="submit" className="bg-[#c81f25] hover:bg-[#a01820]">
-                    Save Changes
+                  <Button
+                    type="submit"
+                    className="bg-[#c81f25] hover:bg-[#a01820]"
+                    disabled={isSavingProfile}
+                  >
+                    {isSavingProfile ? (
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</>
+                    ) : (
+                      'Save Changes'
+                    )}
                   </Button>
                 </form>
               </CardContent>
@@ -478,18 +507,44 @@ export default function SettingsPage() {
                 <form onSubmit={handleChangePassword} className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="currentPassword">Current Password</Label>
-                    <Input id="currentPassword" type="password" />
+                    <Input
+                      id="currentPassword"
+                      type="password"
+                      value={passwordData.current}
+                      onChange={(e) => setPasswordData({ ...passwordData, current: e.target.value })}
+                      required
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="newPassword">New Password</Label>
-                    <Input id="newPassword" type="password" />
+                    <Input
+                      id="newPassword"
+                      type="password"
+                      value={passwordData.new}
+                      onChange={(e) => setPasswordData({ ...passwordData, new: e.target.value })}
+                      required
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="confirmPassword">Confirm New Password</Label>
-                    <Input id="confirmPassword" type="password" />
+                    <Input
+                      id="confirmPassword"
+                      type="password"
+                      value={passwordData.confirm}
+                      onChange={(e) => setPasswordData({ ...passwordData, confirm: e.target.value })}
+                      required
+                    />
                   </div>
-                  <Button type="submit" className="bg-[#c81f25] hover:bg-[#a01820]">
-                    Update Password
+                  <Button
+                    type="submit"
+                    className="bg-[#c81f25] hover:bg-[#a01820]"
+                    disabled={isChangingPassword}
+                  >
+                    {isChangingPassword ? (
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Updating...</>
+                    ) : (
+                      'Update Password'
+                    )}
                   </Button>
                 </form>
               </CardContent>
@@ -510,7 +565,13 @@ export default function SettingsPage() {
                       Receive email updates about your account
                     </p>
                   </div>
-                  <input type="checkbox" defaultChecked className="h-4 w-4" title="Toggle email notifications" aria-label="Email notifications" />
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    aria-label="Email notifications"
+                    checked={notifPrefs.email}
+                    onChange={(e) => setNotifPrefs({ ...notifPrefs, email: e.target.checked })}
+                  />
                 </div>
                 <Separator />
                 <div className="flex items-center justify-between">
@@ -520,7 +581,13 @@ export default function SettingsPage() {
                       Get notified about upcoming invoice due dates
                     </p>
                   </div>
-                  <input type="checkbox" defaultChecked className="h-4 w-4" title="Toggle invoice reminders" aria-label="Invoice reminders" />
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    aria-label="Invoice reminders"
+                    checked={notifPrefs.invoiceReminders}
+                    onChange={(e) => setNotifPrefs({ ...notifPrefs, invoiceReminders: e.target.checked })}
+                  />
                 </div>
                 <Separator />
                 <div className="flex items-center justify-between">
@@ -530,7 +597,13 @@ export default function SettingsPage() {
                       Receive confirmation when payments are processed
                     </p>
                   </div>
-                  <input type="checkbox" defaultChecked className="h-4 w-4" title="Toggle payment confirmations" aria-label="Payment confirmations" />
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    aria-label="Payment confirmations"
+                    checked={notifPrefs.paymentConfirmations}
+                    onChange={(e) => setNotifPrefs({ ...notifPrefs, paymentConfirmations: e.target.checked })}
+                  />
                 </div>
                 <Separator />
                 <div className="flex items-center justify-between">
@@ -540,8 +613,20 @@ export default function SettingsPage() {
                       Get notified about platform updates and maintenance
                     </p>
                   </div>
-                  <input type="checkbox" className="h-4 w-4" title="Toggle system updates" aria-label="System updates" />
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    aria-label="System updates"
+                    checked={notifPrefs.systemUpdates}
+                    onChange={(e) => setNotifPrefs({ ...notifPrefs, systemUpdates: e.target.checked })}
+                  />
                 </div>
+                <Button
+                  className="bg-[#c81f25] hover:bg-[#a01820]"
+                  onClick={() => toast.success('Notification preferences saved')}
+                >
+                  Save Preferences
+                </Button>
               </CardContent>
             </Card>
           </TabsContent>
@@ -582,95 +667,124 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* Outlets Tab */}
+          <TabsContent value="outlets" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Radio className="h-5 w-5 text-brand" />
+                  <CardTitle>Outlet Management</CardTitle>
+                </div>
+                <p className="text-sm text-gray-500 mt-1">
+                  Manage the business outlets served by this platform. Each outlet has its own employees, finances, and schedule.
+                </p>
+              </CardHeader>
+              <CardContent>
+                {loadingOutlets ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {outlets.map((outlet) => (
+                      <div key={outlet.id} className="border rounded-lg p-4">
+                        {editingOutlet === outlet.id ? (
+                          <div className="space-y-3">
+                            <div className="space-y-1">
+                              <Label>Name</Label>
+                              <Input
+                                value={outletEditForm.name}
+                                onChange={(e) => setOutletEditForm(f => ({ ...f, name: e.target.value }))}
+                                placeholder="Outlet name"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Description</Label>
+                              <Input
+                                value={outletEditForm.description}
+                                onChange={(e) => setOutletEditForm(f => ({ ...f, description: e.target.value }))}
+                                placeholder="Short description (optional)"
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                className="bg-brand hover:bg-brand-hover"
+                                onClick={() => saveOutlet(outlet.id)}
+                                disabled={isSavingOutlet}
+                              >
+                                {isSavingOutlet ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                                Save
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={cancelEditOutlet}>
+                                <X className="h-4 w-4" />
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-start gap-3">
+                              <Radio className="h-5 w-5 text-brand mt-0.5 shrink-0" />
+                              <div>
+                                <div className="font-semibold text-gray-900">{outlet.name}</div>
+                                <div className="text-xs text-gray-500 font-mono mt-0.5">code: {outlet.code}</div>
+                                {outlet.description && (
+                                  <div className="text-sm text-gray-600 mt-1">{outlet.description}</div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge className={outlet.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}>
+                                {outlet.status}
+                              </Badge>
+                              <Button size="sm" variant="outline" onClick={() => startEditOutlet(outlet)}>
+                                <Edit2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
 
-        {/* Add New User Modal */}
-        <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
+        {/* Delete User Confirmation Dialog */}
+        <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add New User</DialogTitle>
+              <DialogTitle>Delete User</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleAddUser} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="newUserName">Full Name</Label>
-                <Input
-                  id="newUserName"
-                  value={newUserData.name}
-                  onChange={(e) => setNewUserData({ ...newUserData, name: e.target.value })}
-                  placeholder="Enter full name"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="newUserEmail">Email Address</Label>
-                <Input
-                  id="newUserEmail"
-                  type="email"
-                  value={newUserData.email}
-                  onChange={(e) => setNewUserData({ ...newUserData, email: e.target.value })}
-                  placeholder="Enter email address"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="newUserRole">Role</Label>
-                <Select
-                  value={newUserData.role}
-                  onValueChange={(value) => setNewUserData({ ...newUserData, role: value as UserRole })}
-                >
-                  <SelectTrigger id="newUserRole">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="admin">
-                      <div className="flex items-center gap-2">
-                        <Shield className="h-4 w-4" />
-                        Admin
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="manager">
-                      <div className="flex items-center gap-2">
-                        <Shield className="h-4 w-4" />
-                        Manager
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="employee">
-                      <div className="flex items-center gap-2">
-                        <Shield className="h-4 w-4" />
-                        Employee
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="client">
-                      <div className="flex items-center gap-2">
-                        <Shield className="h-4 w-4" />
-                        Client
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="newUserDepartment">Department (Optional)</Label>
-                <Input
-                  id="newUserDepartment"
-                  value={newUserData.department}
-                  onChange={(e) => setNewUserData({ ...newUserData, department: e.target.value })}
-                  placeholder="Enter department"
-                />
-              </div>
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsAddUserOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" className="bg-[#c81f25] hover:bg-[#a01820]">
-                  Add User
-                </Button>
-              </DialogFooter>
-            </form>
+            <p className="text-sm text-gray-600">
+              Are you sure you want to delete{' '}
+              <strong>{deleteTarget?.name}</strong>? This will permanently remove their
+              account and cannot be undone.
+            </p>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setDeleteTarget(null)}
+                disabled={isDeletingUser}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={confirmDeleteUser}
+                disabled={isDeletingUser}
+              >
+                {isDeletingUser ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Deleting...</>
+                ) : (
+                  'Delete User'
+                )}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>

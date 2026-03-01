@@ -24,7 +24,7 @@ import { createClient } from '@/lib/supabase/client';
 
 export default function NewEmployeePage() {
   const router = useRouter();
-  const { user } = useStore();
+  const { user, currentOutlet } = useStore();
   const [loading, setLoading] = useState(false);
   const [existingEmployees, setExistingEmployees] = useState<any[]>([]);
 
@@ -194,6 +194,7 @@ export default function NewEmployeePage() {
         emergency_contact: formData.emergencyContact || null,
         emergency_phone: formData.emergencyPhone || null,
         notes: formData.notes || null,
+        ...(currentOutlet?.id ? { outlet_id: currentOutlet.id } : {}),
       });
 
       if (insertError) {

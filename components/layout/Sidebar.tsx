@@ -20,7 +20,11 @@ import {
   BarChart3,
   MessageSquare,
   TrendingUp,
+  Percent,
+  ChevronDown,
+  Radio,
 } from 'lucide-react';
+import { useState } from 'react';
 
 interface NavItem {
   name: string;
@@ -52,6 +56,12 @@ const navItems: NavItem[] = [
     name: 'Finance',
     href: '/finance',
     icon: DollarSign,
+    roles: ['admin', 'manager'],
+  },
+  {
+    name: 'Commissions',
+    href: '/commissions',
+    icon: Percent,
     roles: ['admin', 'manager'],
   },
   {
@@ -112,7 +122,10 @@ const navItems: NavItem[] = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { user, sidebarOpen, toggleSidebar } = useStore();
+  const { user, sidebarOpen, toggleSidebar, currentOutlet, availableOutlets, setCurrentOutlet } = useStore();
+  const [outletMenuOpen, setOutletMenuOpen] = useState(false);
+
+  const canSwitchOutlets = availableOutlets.length > 1 && !user?.outletId;
 
   if (!user) return null;
 
@@ -147,6 +160,48 @@ export default function Sidebar() {
             priority
           />
         </div>
+
+        {/* Outlet Switcher */}
+        {currentOutlet && (
+          <div className="border-b border-gray-200 px-3 py-2 relative">
+            {canSwitchOutlets ? (
+              <>
+                <button
+                  onClick={() => setOutletMenuOpen(o => !o)}
+                  className="w-full flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
+                >
+                  <Radio className="h-4 w-4 text-brand shrink-0" />
+                  <span className="flex-1 text-left truncate">{currentOutlet.name}</span>
+                  <ChevronDown className={cn('h-4 w-4 text-gray-400 transition-transform', outletMenuOpen && 'rotate-180')} />
+                </button>
+                {outletMenuOpen && (
+                  <div className="absolute left-3 right-3 top-full mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                    {availableOutlets.map(outlet => (
+                      <button
+                        key={outlet.id}
+                        onClick={() => { setCurrentOutlet(outlet); setOutletMenuOpen(false); }}
+                        className={cn(
+                          'w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left transition-colors',
+                          outlet.id === currentOutlet.id
+                            ? 'bg-brand text-white'
+                            : 'text-gray-700 hover:bg-gray-50'
+                        )}
+                      >
+                        <Radio className="h-4 w-4 shrink-0" />
+                        {outlet.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex items-center gap-2 px-2 py-2">
+                <Radio className="h-4 w-4 text-brand shrink-0" />
+                <span className="text-sm font-medium text-gray-700 truncate">{currentOutlet.name}</span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Navigation */}
         <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">

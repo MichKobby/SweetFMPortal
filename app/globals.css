@@ -4,6 +4,10 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* Brand colors — use bg-brand / hover:bg-brand-hover instead of arbitrary hex values */
+  --color-brand: #c81f25;
+  --color-brand-hover: #a01820;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);

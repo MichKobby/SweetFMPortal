@@ -11,7 +11,14 @@ export async function updateSession(request: NextRequest) {
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    // Return early if Supabase is not configured
+    // In production this means all routes are served without session validation.
+    // Fail loudly so the misconfiguration is caught immediately.
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be set in production'
+      );
+    }
+    console.warn('[middleware] Supabase env vars not set — session refresh skipped');
     return supabaseResponse;
   }
 

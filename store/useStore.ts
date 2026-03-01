@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { User, Client, Employee, Expense, Notification, Show, AdSlot, LeaveRequest, Announcement, Shift, TimeOff } from '@/types';
+import { User, Outlet, Client, Employee, Expense, Notification, Show, AdSlot, LeaveRequest, Announcement, Shift, TimeOff } from '@/types';
 import { createClient } from '@/lib/supabase/client';
 
 interface AppState {
@@ -73,6 +73,12 @@ interface AppState {
   timeOff: TimeOff[];
   updateTimeOff: (employeeId: string, timeOff: Partial<TimeOff>) => void;
   
+  // Outlets
+  currentOutlet: Outlet | null;
+  availableOutlets: Outlet[];
+  setCurrentOutlet: (outlet: Outlet) => void;
+  setAvailableOutlets: (outlets: Outlet[]) => void;
+
   // UI State
   sidebarOpen: boolean;
   toggleSidebar: () => void;
@@ -107,8 +113,31 @@ export const useStore = create<AppState>((set) => ({
             role: profile.role,
             avatar: profile.avatar,
             department: profile.department,
+            outletId: profile.outlet_id ?? null,
           };
-          set({ user, isAuthenticated: true, isLoading: false });
+
+          // Load outlets
+          const { data: outlets } = await supabase
+            .from('outlets')
+            .select('id, name, code, description, status')
+            .eq('status', 'active')
+            .order('name');
+
+          const outletList: import('@/types').Outlet[] = outlets ?? [];
+
+          // Super-admin (outlet_id = null) can switch between all outlets
+          // Regular users are locked to their outlet
+          const current = profile.outlet_id
+            ? outletList.find(o => o.id === profile.outlet_id) ?? outletList[0] ?? null
+            : outletList[0] ?? null;
+
+          set({
+            user,
+            isAuthenticated: true,
+            isLoading: false,
+            availableOutlets: outletList,
+            currentOutlet: current,
+          });
         } else {
           set({ user: null, isAuthenticated: false, isLoading: false });
         }
@@ -131,9 +160,8 @@ export const useStore = create<AppState>((set) => ({
   updateUserRole: (id, role) => set((state) => ({
     users: state.users.map(u => u.id === id ? { ...u, role } : u)
   })),
-  resetUserPassword: (id, newPassword) => {
-    // In a real app, this would call an API
-    console.log(`Password reset for user ${id}: ${newPassword}`);
+  resetUserPassword: (_id, _newPassword) => {
+    // Password resets are handled server-side via /api/admin/reset-password
   },
   addUser: (user) => set((state) => ({ 
     users: [...state.users, user] 
@@ -252,6 +280,12 @@ export const useStore = create<AppState>((set) => ({
     timeOff: state.timeOff.map(t => t.employeeId === employeeId ? { ...t, ...updatedTimeOff } : t)
   })),
   
+  // Outlets
+  currentOutlet: null,
+  availableOutlets: [],
+  setCurrentOutlet: (outlet) => set({ currentOutlet: outlet }),
+  setAvailableOutlets: (outlets) => set({ availableOutlets: outlets }),
+
   // UI State
   sidebarOpen: true,
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen }))
