@@ -32,7 +32,7 @@ export default function NewEmployeePage() {
   useEffect(() => {
     const fetchEmployees = async () => {
       const supabase = createClient();
-      const { data } = await supabase.from('employees').select('employee_id');
+      const { data } = await supabase.from('employees').select('employee_id, hire_date');
       if (data) setExistingEmployees(data);
     };
     fetchEmployees();
@@ -167,7 +167,7 @@ export default function NewEmployeePage() {
       const netPay = salary - deductions;
 
       // Generate employee ID (e.g., S23006)
-      const employeeId = generateEmployeeId(existingEmployees.map(e => ({ employeeId: e.employee_id })) as any, formData.hireDate);
+      const employeeId = generateEmployeeId(existingEmployees.map(e => ({ employeeId: e.employee_id, hireDate: e.hire_date })) as any, formData.hireDate);
 
       // Insert employee into Supabase
       const supabase = createClient();
@@ -248,8 +248,8 @@ export default function NewEmployeePage() {
       setTimeout(() => {
         router.push('/employees');
       }, 1000);
-    } catch (error) {
-      toast.error('Failed to add employee');
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to add employee');
       console.error(error);
     } finally {
       setLoading(false);
